@@ -1,0 +1,50 @@
+pipeline {
+    agent none
+
+    stages {
+        stage('Checkout') {
+            agent { label 'built-in' }
+            steps {
+                echo 'Checking out code on controller...'
+                checkout scm
+                stash name: 'source-files', includes: '**/*'
+            }
+        }
+
+        stage('Compile on Slave 1') {
+            agent { label 'slave-node-compile' }
+            steps {
+                echo 'Compiling Maven project on Slave 1...'
+                unstash 'source-files'
+                sh 'mvn clean compile'
+                stash name: 'compiled-classes', includes: 'target/classes/**, pom.xml, src/**'
+            }
+        }
+
+        stage('Test on Slave 2') {
+            agent { label 'slave-node-test' }
+            steps {
+                echo 'Running JUnit tests on Slave 2...'
+                unstash 'compiled-classes'
+                sh 'mvn test'
+                junit 'target/surefire-reports/*.xml'
+            }
+        }
+
+        stage('Package on Slave 1') {
+            agent { label 'slave-node-compile' }
+            steps {
+                echo 'Packaging JAR on Slave 1...'
+                unstash 'compiled-classes'
+                sh 'mvn package -DskipTests'
+                archiveArtifacts artifacts: 'target/*.jar'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Distributed pipeline finished successfully!'
+        }
+    }
+}
